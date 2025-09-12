@@ -1,80 +1,62 @@
-import yfinance as yf 
-import pandas as pd
-from aiogram import Bot, Dispatcher, executor, types
+import logging
 import random
+import asyncio
+import yfinance as yf
+import pandas as pd
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
 
-# === SETTINGS ===
-TOKEN = "7644871200:AAF3oKcMkS8qLMjH_31d-AYRQUQ3aglqhMs"  # insert your token from BotFather
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+# ==== ВСТАВЬ СВОЙ ТОКЕН СЮДА ====
+API_TOKEN = "YOUR_BOT_TOKEN"
 
-# === FUNCTION TO CALCULATE SIGNAL ===
-def get_signal(pair="EURUSD"):
-    # If it's forex (letters only, like EURUSD), add =X
-    if pair.isalpha():
-        ticker = pair + "=X"
-    else:
-        ticker = pair
+logging.basicConfig(level=logging.INFO)
 
-    data = yf.download(ticker, period="1mo", interval="1h")
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
 
+# Получение случайного сигнала
+def get_signal():
+    pairs = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X"]
+    pair = random.choice(pairs)
+    
+    data = yf.download(pair, period="1d", interval="1m")
     if data.empty:
-        return f"⚠️ No data for {pair}"
+        return None
+    
+    last_price = round(data["Close"].iloc[-1], 5)
+    signal_type = random.choice(["📈 BUY", "📉 SELL"])
+    time_to_exit = random.randint(1, 5)  # минуты
+    
+    return {
+        "pair": pair.replace("=X", ""),
+        "signal": signal_type,
+        "price": last_price,
+        "time": time_to_exit
+    }
 
-    # Moving Averages
-    data["SMA50"] = data["Close"].rolling(window=50).mean()
-    data["SMA200"] = data["Close"].rolling(window=200).mean()
+# Команда /start
+@dp.message(Command("start"))
+async def start_handler(message: types.Message):
+    await message.answer("👋 Привет! Отправь /signal, чтобы получить торговый сигнал.")
 
-    # Last values
-    sma50 = float(data["SMA50"].iloc[-1])
-    sma200 = float(data["SMA200"].iloc[-1])
-    last_close = float(data["Close"].iloc[-1])
-
-    # Check for NaN
-    if pd.isna(sma50) or pd.isna(sma200):
-        return f"⚠️ Not enough data for {pair}"
-
-    # Signal generation
-    if sma50 > sma200:
-        signal = "📈 BUY"
-    elif sma50 < sma200:
-        signal = "📉 SELL"
+# Команда /signal
+@dp.message(Command("signal"))
+async def signal_handler(message: types.Message):
+    signal = get_signal()
+    if signal:
+        response = (
+            f"📊 Pair: {signal['pair']}\n"
+            f"Signal: {signal['signal']}\n"
+            f"Price: {signal['price']}\n"
+            f"⏱ Time: {signal['time']} min"
+        )
+        await message.answer(response)
     else:
-        signal = "⏸ HOLD"
+        await message.answer("❌ Не удалось получить данные. Попробуй ещё раз.")
 
-    # Random time from 1 to 5 minutes
-    trade_time = random.randint(1, 5)
+# Запуск бота
+async def main():
+    await dp.start_polling(bot)
 
-    return (
-        f"📊 Pair: {pair}\n"
-        f"Signal: {signal}\n"
-        f"Price: {round(last_close, 5)}\n"
-        f"⏱ Time: {trade_time} min"
-    )
-
-# === BOT COMMANDS ===
-@dp.message_handler(commands=["start"])
-async def start(msg: types.Message):
-    await msg.reply(
-        "Hello! 🚀\n"
-        "Use the command in the format:\n"
-        "`/signal EURUSD`\n\n"
-        "Examples of tickers:\n"
-        "Forex: EURUSD, GBPJPY, USDJPY, GBPUSD\n"
-        "Crypto: BTC-USD, ETH-USD",
-        parse_mode="Markdown"
-    )
-
-@dp.message_handler(commands=["signal"])
-async def signal(msg: types.Message):
-    args = msg.get_args()
-    pair = args if args else "EURUSD"
-    try:
-        result = get_signal(pair.upper())
-        await msg.reply(result)
-    except Exception as e:
-        await msg.reply(f"Error: {e}")
-
-# === RUN BOT ===
 if __name__ == "__main__":
-    executor.start_polling(dp)
+    asyncio.run(main())
